@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <!-- Важно для мобильных устройств: запрещает автоматическое масштабирование страницы -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Carcassonne Mobile Prototype</title>
+    <script src="https://socket.io"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #1a1a1a; color: #fff; overflow: hidden; }
+        
+        #menu, #game { display: none; width: 100vw; height: 100vh; }
+        #menu.active, #game.active { display: flex; flex-direction: column; }
+
+        /* Стили меню для телефонов */
+        #menu { justify-content: center; align-items: center; padding: 20px; text-align: center; }
+        h1 { margin-bottom: 30px; font-size: 2rem; color: #f0a500; }
+        input, button { width: 100%; max-width: 300px; padding: 15px; margin: 10px 0; border-radius: 8px; border: none; font-size: 1.1rem; }
+        input { background: #333; color: #fff; text-align: center; }
+        button { background: #f0a500; color: #1a1a1a; font-weight: bold; cursor: pointer; }
+        button:active { background: #cd8d03; }
+        hr { width: 100%; max-width: 300px; border: 1px solid #333; margin: 20px 0; }
+
+        /* Игровой интерфейс */
+        #ui-top { position: absolute; top: 0; left: 0; width: 100%; padding: 10px; background: rgba(0,0,0,0.7); display: flex; justify-content: space-between; align-items: center; z-index: 10; font-size: 0.9rem; }
+        #ui-bottom { position: absolute; bottom: 0; left: 0; width: 100%; padding: 15px; background: rgba(0,0,0,0.7); text-align: center; z-index: 10; }
+        
+        /* Кнопки масштаба для удобства на мобилках */
+        #controls { position: absolute; right: 15px; top: 70px; display: flex; flex-direction: column; gap: 10px; z-index: 10; }
+        .zoom-btn { width: 50px; height: 50px; background: rgba(255,255,255,0.2); border: 2px solid #fff; color: #fff; border-radius: 50%; font-size: 1.5rem; display: flex; align-items: center; justify-content: center; }
+
+        canvas { display: block; width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+
+    <!-- ГЛАВНОЕ МЕНЮ -->
+    <div id="menu" class="active">
+        <h1>Carcassonne Online</h1>
+        <input type="text" id="username" placeholder="Ваше имя" value="Игрок Мобилка">
+        <button onclick="createGame()">Создать игру</button>
+        <hr>
+        <input type="number" id="roomCode" placeholder="5-значный код комнаты" pattern="\d*">
+        <button onclick="joinGame()">Присоединиться</button>
+    </div>
+
+    <!-- ИГРОВОЙ ЭКРАН -->
+    <div id="game">
+        <div id="ui-top">
+            <div>Комната: <span id="roomDisplay" style="color:#f0a500; font-weight:bold;"></span></div>
+            <div id="turnDisplay">Ожидание...</div>
+        </div>
+
+        <div id="controls">
+            <button class="zoom-btn" onclick="zoom(1.2)">+</button>
+            <button class="zoom-btn" onclick="zoom(0.8)">-</button>
+        </div>
+
+        <!-- Сюда отрисовывается бесконечная карта -->
+        <canvas id="gameCanvas"></canvas>
+
+        <div id="ui-bottom">
+            Ваш тайл: <span id="myTileColor" style="font-weight:bold; text-transform: uppercase;"></span>
+        </div>
+    </div>
+
+    <script>
+        // Подключение к серверу (для тестов на телефоне внутри одной Wi-Fi сети 
+        // замени localhost на IP-адрес твоего компа, например: 'http://192.168.1.50:3000')
+        const socket = io('https://onrender.com');
+        
+        let currentGameId = null;
+        let myId = null;
+        let gameChunks = {};
+
+        // Настройки камеры (перетаскивание и зум)
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        let tileSize = 60; // Базовый размер тайла в пикселях
+        let scale = 1.0;
+        let offsetX = 0;   // Смещение камеры по X
+        let offsetY = 0;   // Смещение камеры по Y
+
+        // Переменные для отслеживания тачей/мыши
+        let isDragging = false;
+        let startX, startY;
+        let hasMoved = false; // Отличаем клик от перетаскивания
+
+        // Подгоняем холст под размеры экрана смартфона
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            if (currentGameId) draw();
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        socket.on('connect', () => { myId = socket.id; });
+
+        function createGame() { socket.emit('createGame'); }
+        function joinGame() {
+            const gameId = document.getElementById('roomCode').value;
+            connectToRoom(gameId);
+        }
+
+        socket.on('gameCreated', (gameId) => { connectToRoom(gameId); });
+
+        function connectToRoom(gameId) {
+            currentGameId = gameId;
+            const name = document.getElementById('username').value;
+            socket.emit('joinGame', { gameId, name });
+            showScreen('game');
+            document.getElementById('roomDisplay').innerText = gameId;
+            // Центрируем камеру при старте
+            offsetX = canvas.width / 2;
+            offsetY = canvas.height / 2;
+        }
+
+        socket.on('gameState', (data) => {
+            gameChunks = data.chunks;
+            const me = data.players.find(p => p.id === myId);
+            if (me) {
+                document.getElementById('myTileColor').innerText = me.currentTile;
+                document.getElementById('myTileColor').style.color = me.currentTile;
+            }
+            const isMyTurn = data.currentTurn === myId;
+            document.getElementById('turnDisplay').innerText = isMyTurn ? "ТВОЙ ХОД!" : "Ход соперника";
+            document.getElementById('turnDisplay').style.color = isMyTurn ? "#00ff00" : "#fff";
+            
+            draw();
+        });
+
+        socket.on('error', (msg) => alert(msg));
+
+        function showScreen(id) {
+            document.getElementById('menu').classList.remove('active');
+            document.getElementById('game').classList.remove('active');
+            document.getElementById(id).classList.add('active');
+            resizeCanvas();
+        }
+
+        function zoom(amount) {
+            scale *= amount;
+            if (scale < 0.3) scale = 0.3;
+            if (scale > 3) scale = 3;
+            draw();
+        }
+
+        // --- ЛОГИКА ОТРИСОВКИ НА CANVAS ---
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            ctx.translate(offsetX, offsetY);
+            ctx.scale(scale, scale);
+
+            const currentTileSize = tileSize;
+
+            // Рисуем сетку-подложку вокруг центра (например от -20 до 20 клеток)
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1;
+            for (let x = -20; x <= 20; x++) {
+                for (let y = -20; y <= 20; y++) {
+                    ctx.strokeRect(x * currentTileSize, y * currentTileSize, currentTileSize, currentTileSize);
+                }
+            }
+
+            // Отрисовываем тайлы из чанков
+            for (const chunkKey in gameChunks) {
+                const [chunkX, chunkY] = chunkKey.split(',').map(Number);
+                const tiles = gameChunks[chunkKey];
+
+                for (const tileKey in tiles) {
+                    const [localX, localY] = tileKey.split(',').map(Number);
+                    const color = tiles[tileKey];
+
+                    // Вычисляем глобальные координаты тайла
+                    const globalX = chunkX * 5 + localX;
+                    const globalY = chunkY * 5 + localY;
+
+                    // Рисуем тайл
+                    ctx.fillStyle = color;
+                    ctx.fillRect(globalX * currentTileSize + 2, globalY * currentTileSize + 2, currentTileSize - 4, currentTileSize - 4);
+                    
+                    // Текст координат для теста
+                    ctx.fillStyle = '#fff';
+                    ctx.font = '10px Arial';
+                    ctx.fillText(`${globalX},${globalY}`, globalX * currentTileSize + 5, globalY * currentTileSize + 20);
+                }
+            }
+            ctx.restore();
+        }
+
+        // --- ОБРАБОТКА СЕНСОРА / МЫШИ (ДЛЯ ТЕЛЕФОНОВ) ---
+        function getEventPos(e) {
+            if (e.touches && e.touches.length > 0) {
+                return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            }
+            return { x: e.clientX, y: e.clientY };
+        }
+
+        function startDrag(e) {
+            isDragging = true;
+            hasMoved = false;
+            const pos = getEventPos(e);
+            startX = pos.x - offsetX;
+            startY = pos.y - offsetY;
+        }
+
+        function doDrag(e) {
+            if (!isDragging) return;
+            hasMoved = true;
+            const pos = getEventPos(e);
+            offsetX = pos.x - startX;
+            offsetY = pos.y - startY;
+            draw();
+        }
+
+        function endDrag(e) {
+            if (!isDragging) return;
+            isDragging = false;
+            
+            // Если палец не двигался — это был чистый клик по экрану (попытка поставить тайл)
+            if (!hasMoved) {
+                let clickX, clickY;
+                if (e.changedTouches) {
+                    clickX = e.changedTouches[0].clientX;
+                    clickY = e.changedTouches[0].clientY;
+                } else {
+                    clickX = e.clientX;
+                    clickY = e.clientY;
+                }
+
+                // Магическая математика: переводим пиксели экрана обратно в координаты сетки (X, Y)
+                const mouseGridX = Math.floor(((clickX - offsetX) / scale) / tileSize);
+                const mouseGridY = Math.floor(((clickY - offsetY) / scale) / tileSize);
+// Отправляем на сервер
+socket.emit('placeTile', { gameId: currentGameId, x: mouseGridX, y: mouseGridY });}}
+// Навешиваем события и для мыши (комп), и для тачей (смартфон)
+canvas.addEventListener('mousedown', startDrag);canvas.addEventListener('mousemove', doDrag);canvas.addEventListener('mouseup', endDrag);canvas.addEventListener('touchstart', startDrag, {passive: true});canvas.addEventListener('touchmove', doDrag, {passive: true});canvas.addEventListener('touchend', endDrag);
