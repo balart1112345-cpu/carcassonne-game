@@ -2,18 +2,15 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <!-- Важно для мобильных устройств: запрещает автоматическое масштабирование страницы -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Carcassonne Mobile Prototype</title>
+    <!-- ПРАВИЛЬНОЕ ПОДКЛЮЧЕНИЕ БИБЛИОТЕКИ СОКЕТОВ -->
     <script src="https://socket.io"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #1a1a1a; color: #fff; overflow: hidden; }
-        
         #menu, #game { display: none; width: 100vw; height: 100vh; }
         #menu.active, #game.active { display: flex; flex-direction: column; }
-
-        /* Стили меню для телефонов */
         #menu { justify-content: center; align-items: center; padding: 20px; text-align: center; }
         h1 { margin-bottom: 30px; font-size: 2rem; color: #f0a500; }
         input, button { width: 100%; max-width: 300px; padding: 15px; margin: 10px 0; border-radius: 8px; border: none; font-size: 1.1rem; }
@@ -21,15 +18,10 @@
         button { background: #f0a500; color: #1a1a1a; font-weight: bold; cursor: pointer; }
         button:active { background: #cd8d03; }
         hr { width: 100%; max-width: 300px; border: 1px solid #333; margin: 20px 0; }
-
-        /* Игровой интерфейс */
         #ui-top { position: absolute; top: 0; left: 0; width: 100%; padding: 10px; background: rgba(0,0,0,0.7); display: flex; justify-content: space-between; align-items: center; z-index: 10; font-size: 0.9rem; }
         #ui-bottom { position: absolute; bottom: 0; left: 0; width: 100%; padding: 15px; background: rgba(0,0,0,0.7); text-align: center; z-index: 10; }
-        
-        /* Кнопки масштаба для удобства на мобилках */
         #controls { position: absolute; right: 15px; top: 70px; display: flex; flex-direction: column; gap: 10px; z-index: 10; }
         .zoom-btn { width: 50px; height: 50px; background: rgba(255,255,255,0.2); border: 2px solid #fff; color: #fff; border-radius: 50%; font-size: 1.5rem; display: flex; align-items: center; justify-content: center; }
-
         canvas { display: block; width: 100%; height: 100%; }
     </style>
 </head>
@@ -51,15 +43,11 @@
             <div>Комната: <span id="roomDisplay" style="color:#f0a500; font-weight:bold;"></span></div>
             <div id="turnDisplay">Ожидание...</div>
         </div>
-
         <div id="controls">
             <button class="zoom-btn" onclick="zoom(1.2)">+</button>
             <button class="zoom-btn" onclick="zoom(0.8)">-</button>
         </div>
-
-        <!-- Сюда отрисовывается бесконечная карта -->
         <canvas id="gameCanvas"></canvas>
-
         <div id="ui-bottom">
             Ваш тайл: <span id="myTileColor" style="font-weight:bold; text-transform: uppercase;"></span>
         </div>
@@ -67,26 +55,23 @@
 
     <script>
         // Подключение к твоему живому серверу на Render
-        const socket = io('https://carcassonne-server.onrender.com');
+        const socket = io('https://carcassonne-server.onrender.com'); 
         
         let currentGameId = null;
         let myId = null;
         let gameChunks = {};
 
-        // Настройки камеры (перетаскивание и зум)
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        let tileSize = 60; // Базовый размер тайла в пикселях
+        let tileSize = 60;
         let scale = 1.0;
-        let offsetX = 0;   // Смещение камеры по X
-        let offsetY = 0;   // Смещение камеры по Y
+        let offsetX = 0;
+        let offsetY = 0;
 
-        // Переменные для отслеживания тачей/мыши
         let isDragging = false;
         let startX, startY;
-        let hasMoved = false; // Отличаем клик от перетаскивания
+        let hasMoved = false;
 
-        // Подгоняем холст под размеры экрана смартфона
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
@@ -118,7 +103,6 @@
             socket.emit('joinGame', { gameId, name });
             showScreen('game');
             document.getElementById('roomDisplay').innerText = gameId;
-            // Центрируем камеру при старте
             offsetX = canvas.width / 2;
             offsetY = canvas.height / 2;
         }
@@ -133,7 +117,6 @@
             const isMyTurn = data.currentTurn === myId;
             document.getElementById('turnDisplay').innerText = isMyTurn ? "ТВОЙ ХОД!" : "Ход соперника";
             document.getElementById('turnDisplay').style.color = isMyTurn ? "#00ff00" : "#fff";
-            
             draw();
         });
 
@@ -153,7 +136,6 @@
             draw();
         }
 
-        // --- ЛОГИКА ОТРИСОВКИ НА CANVAS ---
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.save();
@@ -162,7 +144,6 @@
 
             const currentTileSize = tileSize;
 
-            // Рисуем сетку-подложку вокруг центра
             ctx.strokeStyle = '#333';
             ctx.lineWidth = 1;
             for (let x = -20; x <= 20; x++) {
@@ -171,7 +152,6 @@
                 }
             }
 
-            // Отрисовываем тайлы из чанков
             for (const chunkKey in gameChunks) {
                 const [chunkX, chunkY] = chunkKey.split(',').map(Number);
                 const tiles = gameChunks[chunkKey];
@@ -194,7 +174,6 @@
             ctx.restore();
         }
 
-        // --- ОБРАБОТКА СЕНСОРА / МЫШИ ---
         function getEventPos(e) {
             if (e.touches && e.touches.length > 0) {
                 return { x: e.touches[0].clientX, y: e.touches[0].clientY };
@@ -243,7 +222,6 @@
         canvas.addEventListener('mousedown', startDrag);
         canvas.addEventListener('mousemove', doDrag);
         canvas.addEventListener('mouseup', endDrag);
-
         canvas.addEventListener('touchstart', startDrag, {passive: true});
         canvas.addEventListener('touchmove', doDrag, {passive: true});
         canvas.addEventListener('touchend', endDrag);
