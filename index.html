@@ -66,9 +66,8 @@
     </div>
 
     <script>
-        // Подключение к серверу (для тестов на телефоне внутри одной Wi-Fi сети 
-        // замени localhost на IP-адрес твоего компа, например: 'http://192.168.1.50:3000')
-        const socket = io('https://onrender.com');
+        // Подключение к твоему живому серверу на Render
+        const socket = io('https://onrender.com'); 
         
         let currentGameId = null;
         let myId = null;
@@ -96,9 +95,16 @@
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
 
-        socket.on('connect', () => { myId = socket.id; });
+        socket.on('connect', () => { 
+            myId = socket.id; 
+            console.log("Успешно подключились к серверу сокетов! Мой ID:", myId);
+        });
 
-        function createGame() { socket.emit('createGame'); }
+        function createGame() { 
+            console.log("Отправка запроса на создание игры...");
+            socket.emit('createGame'); 
+        }
+        
         function joinGame() {
             const gameId = document.getElementById('roomCode').value;
             connectToRoom(gameId);
@@ -156,7 +162,7 @@
 
             const currentTileSize = tileSize;
 
-            // Рисуем сетку-подложку вокруг центра (например от -20 до 20 клеток)
+            // Рисуем сетку-подложку вокруг центра
             ctx.strokeStyle = '#333';
             ctx.lineWidth = 1;
             for (let x = -20; x <= 20; x++) {
@@ -174,15 +180,12 @@
                     const [localX, localY] = tileKey.split(',').map(Number);
                     const color = tiles[tileKey];
 
-                    // Вычисляем глобальные координаты тайла
                     const globalX = chunkX * 5 + localX;
                     const globalY = chunkY * 5 + localY;
 
-                    // Рисуем тайл
                     ctx.fillStyle = color;
                     ctx.fillRect(globalX * currentTileSize + 2, globalY * currentTileSize + 2, currentTileSize - 4, currentTileSize - 4);
                     
-                    // Текст координат для теста
                     ctx.fillStyle = '#fff';
                     ctx.font = '10px Arial';
                     ctx.fillText(`${globalX},${globalY}`, globalX * currentTileSize + 5, globalY * currentTileSize + 20);
@@ -191,7 +194,7 @@
             ctx.restore();
         }
 
-        // --- ОБРАБОТКА СЕНСОРА / МЫШИ (ДЛЯ ТЕЛЕФОНОВ) ---
+        // --- ОБРАБОТКА СЕНСОРА / МЫШИ ---
         function getEventPos(e) {
             if (e.touches && e.touches.length > 0) {
                 return { x: e.touches[0].clientX, y: e.touches[0].clientY };
@@ -220,10 +223,9 @@
             if (!isDragging) return;
             isDragging = false;
             
-            // Если палец не двигался — это был чистый клик по экрану (попытка поставить тайл)
             if (!hasMoved) {
                 let clickX, clickY;
-                if (e.changedTouches) {
+                if (e.changedTouches && e.changedTouches.length > 0) {
                     clickX = e.changedTouches[0].clientX;
                     clickY = e.changedTouches[0].clientY;
                 } else {
@@ -231,10 +233,18 @@
                     clickY = e.clientY;
                 }
 
-                // Магическая математика: переводим пиксели экрана обратно в координаты сетки (X, Y)
                 const mouseGridX = Math.floor(((clickX - offsetX) / scale) / tileSize);
                 const mouseGridY = Math.floor(((clickY - offsetY) / scale) / tileSize);
-// Отправляем на сервер
-socket.emit('placeTile', { gameId: currentGameId, x: mouseGridX, y: mouseGridY });}}
-// Навешиваем события и для мыши (комп), и для тачей (смартфон)
-canvas.addEventListener('mousedown', startDrag);canvas.addEventListener('mousemove', doDrag);canvas.addEventListener('mouseup', endDrag);canvas.addEventListener('touchstart', startDrag, {passive: true});canvas.addEventListener('touchmove', doDrag, {passive: true});canvas.addEventListener('touchend', endDrag);
+
+                socket.emit('placeTile', { gameId: currentGameId, x: mouseGridX, y: mouseGridY });
+            }
+        }
+
+        canvas.addEventListener('mousedown', startDrag);
+        canvas.addEventListener('mousemove', doDrag);
+        canvas.addEventListener('mouseup', endDrag);
+
+        canvas.addEventListener('touchstart', startDrag, {passive: true});
+        canvas.addEventListener('touchmove', doDrag, {passive: true});
+        canvas.addEventListener('touchend', endDrag);
+    </script>
